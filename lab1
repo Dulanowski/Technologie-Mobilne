@@ -94,3 +94,4 @@ if __name__ == "__main__":
     print(f"Normalny   μ = {mu:5.1f}   σ = {sigma:4.1f}")
     print(f"  średnia próby    : {sum(dane_gauss) / len(dane_gauss):6.3f}")
     print( f"  odchylenie próby : {math.sqrt(sum((x - sum(dane_gauss) / len(dane_gauss)) ** 2 for x in dane_gauss) / len(dane_gauss)):6.3f}")
+
