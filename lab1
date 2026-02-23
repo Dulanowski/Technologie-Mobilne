@@ -1,1 +1,96 @@
+import math
+import matplotlib.pyplot as plt
 
+
+class WlasnyGeneratorLosowy:
+    def __init__(self, ziarno=1):
+        self.mnoznik = 16807  # 7^5
+        self.dodatek = 0
+        self.modulo = 2147483647  # 2^31 - 1
+        self.stan_aktualny = ziarno % self.modulo
+
+    def daj_nastepna_jednostkowa(self):
+        self.stan_aktualny = (self.mnoznik * self.stan_aktualny + self.dodatek) % self.modulo
+        return self.stan_aktualny / self.modulo
+
+
+def wygeneruj_poissona(generator, parametr_lambda, ile_liczb):
+    lista_wynikow = []
+    e_do_minus_lambda = math.exp(-parametr_lambda)
+
+    for _ in range(ile_liczb):
+        licznik = -1
+        iloczyn = 1.0
+
+        while iloczyn > e_do_minus_lambda:
+            u = generator.daj_nastepna_jednostkowa()
+            iloczyn *= u
+            licznik += 1
+
+        lista_wynikow.append(licznik)
+
+    return lista_wynikow
+
+
+def wygeneruj_normalny(generator, srednia, odchylenie, ile_liczb):
+    lista_wynikow = []
+    pi = 3.141592653589793
+
+    while len(lista_wynikow) < ile_liczb:
+        u1 = generator.daj_nastepna_jednostkowa()
+        u2 = generator.daj_nastepna_jednostkowa()
+
+        if u1 < 1e-10:
+            u1 = 1e-10
+
+        wspolczynnik = math.sqrt(-2.0 * math.log(u1))
+        kat = 2.0 * pi * u2
+
+        z1 = wspolczynnik * math.cos(kat)
+        z2 = wspolczynnik * math.sin(kat)
+
+        lista_wynikow.append(srednia + odchylenie * z1)
+        if len(lista_wynikow) < ile_liczb:
+            lista_wynikow.append(srednia + odchylenie * z2)
+
+    return lista_wynikow[:ile_liczb]
+
+if __name__ == "__main__":
+    generator = WlasnyGeneratorLosowy(ziarno=20250223)
+    ile_prob = 12000
+
+    #rozklad poisona
+    lambda_wartosc = 3.8
+    dane_poisson = wygeneruj_poissona(generator, lambda_wartosc, ile_prob)
+
+    #normalny rozklad
+    mu = 12.0
+    sigma = 4.2
+    dane_gauss = wygeneruj_normalny(generator, mu, sigma, ile_prob)
+
+    # wykresy
+    plt.figure(figsize=(13, 5))
+    plt.subplot(1, 2, 1)
+    plt.hist(dane_poisson,
+             bins=range(min(dane_poisson), max(dane_poisson) + 2),
+             color='yellow', alpha=0.75, edgecolor='red')
+    plt.title(f"Rozklad poissona  λ = {lambda_wartosc}   (n = {ile_prob})")
+    plt.xlabel("Wartosc")
+    plt.ylabel("Liczba wystapien")
+
+    plt.subplot(1, 2, 2)
+    plt.hist(dane_gauss,
+             bins=60, color='blue', alpha=0.75, edgecolor='green')
+    plt.title(f"Rozklad normalny   μ = {mu}   σ = {sigma}   (n = {ile_prob})")
+    plt.xlabel("Wartosc")
+    plt.ylabel("Liczba wystąpien")
+
+    plt.tight_layout()
+    plt.show()
+    #statystyki
+    print(f"Poisson    λ = {lambda_wartosc:4.1f}")
+    print(f"  srednia proby    : {sum(dane_poisson) / len(dane_poisson):6.3f}")
+    print( f"  wariancja proby  : {sum((x - sum(dane_poisson) / len(dane_poisson)) ** 2 for x in dane_poisson) / len(dane_poisson):6.3f}\n")
+    print(f"Normalny   μ = {mu:5.1f}   σ = {sigma:4.1f}")
+    print(f"  średnia próby    : {sum(dane_gauss) / len(dane_gauss):6.3f}")
+    print( f"  odchylenie próby : {math.sqrt(sum((x - sum(dane_gauss) / len(dane_gauss)) ** 2 for x in dane_gauss) / len(dane_gauss)):6.3f}")
