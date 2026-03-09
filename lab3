@@ -1,0 +1,233 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+import threading
+import time
+
+COLOR_IDLE = "#2ecc71"
+COLOR_BUSY = "#e74c3c"
+PLOT_COLORS = ['#f39c12', '#3498db', '#9b59b6']
+
+class SimulationEngine:
+    @staticmethod
+    def generate_traffic(params):
+        traffic_data = []
+        elapsed = 0
+        while elapsed < params['sim_time']:
+            inter_arrival = np.random.exponential(1 / params['lambda'])
+            elapsed += inter_arrival
+            if elapsed > params['sim_time']: break
+
+            duration = np.clip(
+                np.random.normal(params['mean'], params['sigma']),
+                params['min'], params['max']
+            )
+            traffic_data.append({
+                'arrival': elapsed,
+                'duration': int(duration),
+                'gap': inter_arrival
+            })
+        return traffic_data
+
+class TelephonyApp:
+    def __init__(self, window):
+        self.window = window
+        self.window.title("System Symulacji Stacji Bazowej")
+        self.window.geometry("1200x850")
+
+        self.active_sim = False
+        self.metrics = {'Q': [], 'W': [], 'Ro': [], 'steps': []}
+
+        self._build_layout()
+        self._init_plots()
+
+    def _build_layout(self):
+        self.left_sidebar = tk.Frame(self.window, padx=10, pady=10)
+        self.left_sidebar.pack(side=tk.LEFT, fill=tk.Y)
+
+        self.center_view = tk.Frame(self.window, padx=10, pady=10)
+        self.center_view.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.right_charts = tk.Frame(self.window, padx=10, pady=10)
+        self.right_charts.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._build_inputs()
+        self._build_visualizer()
+        self._build_table()
+
+    def _build_inputs(self):
+        group = tk.LabelFrame(self.left_sidebar, text=" Konfiguracja Systemu ", padx=10, pady=10)
+        group.pack(fill=tk.X)
+
+        self.fields = {}
+        specs = [
+            ("Kanały", "10"), ("Kolejka", "5"), ("Lambda (λ)", "1.2"),
+            ("Śr. rozmowa", "15"), ("Odchylenie", "4"), ("Min czas", "5"),
+            ("Max czas", "40"), ("Czas sym.", "50")
+        ]
+
+        for i, (label, val) in enumerate(specs):
+            tk.Label(group, text=label).grid(row=i, column=0, sticky="w", pady=2)
+            entry = tk.Entry(group, width=10)
+            entry.insert(0, val)
+            entry.grid(row=i, column=1, padx=5)
+            self.fields[label] = entry
+
+        self.btn_action = tk.Button(group, text="URUCHOM", bg="#34495e", fg="white",
+                                    font=("Arial", 10, "bold"), command=self.trigger_simulation)
+        self.btn_action.grid(row=len(specs), column=0, columnspan=2, pady=15, sticky="we")
+
+        self.status_box = tk.Text(self.left_sidebar, height=8, width=25, font=("Consolas", 9))
+        self.status_box.pack(pady=10)
+
+    def _build_visualizer(self):
+        viz_frame = tk.LabelFrame(self.center_view, text=" Status Kanałów Radiowych ")
+        viz_frame.pack(fill=tk.X)
+
+        self.canvas_nodes = tk.Canvas(viz_frame, height=250, bg="#f0f0f0")
+        self.canvas_nodes.pack(fill=tk.X, padx=5, pady=5)
+        self.node_elements = []
+
+    def _build_table(self):
+        tbl_frame = tk.Frame(self.center_view)
+        tbl_frame.pack(fill=tk.BOTH, expand=True, pady=10)
+
+        columns = ("id", "arr", "dur", "type", "util")
+        self.data_grid = ttk.Treeview(tbl_frame, columns=columns, show='headings')
+
+        headings = [("id", "Klient"), ("arr", "Przyjście"), ("dur", "Czas"), ("type", "λi"), ("util", "Obciążenie")]
+        for col, head in headings:
+            self.data_grid.heading(col, text=head)
+            self.data_grid.column(col, width=80, anchor="center")
+
+        scroll = ttk.Scrollbar(tbl_frame, orient=tk.VERTICAL, command=self.data_grid.yview)
+        self.data_grid.configure(yscroll=scroll.set)
+        self.data_grid.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+    def _init_plots(self):
+        self.figure, self.axes = plt.subplots(3, 1, figsize=(5, 8))
+        self.plot_canvas = FigureCanvasTkAgg(self.figure, master=self.right_charts)
+        self.plot_canvas.get_tk_widget().pack()
+        self.figure.tight_layout()
+
+    def _refresh_nodes(self, count):
+        self.canvas_nodes.delete("all")
+        self.node_elements = []
+        cols = 5
+        for i in range(count):
+            r, c = divmod(i, cols)
+            x, y = c * 75 + 20, r * 50 + 20
+            rect = self.canvas_nodes.create_rectangle(x, y, x + 60, y + 35, fill=COLOR_IDLE, outline="#7f8c8d")
+            txt = self.canvas_nodes.create_text(x + 30, y + 17, text="IDLE", font=("Arial", 8))
+            self.node_elements.append((rect, txt))
+
+    def get_params(self):
+        return {
+            'chan': int(self.fields["Kanały"].get()),
+            'q_limit': int(self.fields["Kolejka"].get()),
+            'lambda': float(self.fields["Lambda (λ)"].get()),
+            'mean': float(self.fields["Śr. rozmowa"].get()),
+            'sigma': float(self.fields["Odchylenie"].get()),
+            'min': float(self.fields["Min czas"].get()),
+            'max': float(self.fields["Max czas"].get()),
+            'sim_time': int(self.fields["Czas sym."].get())
+        }
+
+    def trigger_simulation(self):
+        if self.active_sim: return
+        try:
+            cfg = self.get_params()
+            self._refresh_nodes(cfg['chan'])
+            self.metrics = {'Q': [], 'W': [], 'Ro': [], 'steps': []}
+            for row in self.data_grid.get_children(): self.data_grid.delete(row)
+
+            self.active_sim = True
+            threading.Thread(target=self.run_core_logic, args=(cfg,), daemon=True).start()
+        except ValueError:
+            messagebox.showerror("Błąd", "Wprowadź poprawne liczby!")
+
+    def run_core_logic(self, cfg):
+        traffic = SimulationEngine.generate_traffic(cfg)
+        nodes = [0] * cfg['chan']
+        queue = []
+        stats = {'served': 0, 'lost': 0, 'q_wait': 0, 'q_count': 0}
+
+        for tick in range(cfg['sim_time'] + 1):
+            current_wave = [t for t in traffic if int(t['arrival']) == tick]
+
+            for call in current_wave:
+                free_slot = next((i for i, v in enumerate(nodes) if v <= 0), None)
+                if free_slot is not None:
+                    nodes[free_slot] = call['duration']
+                    stats['served'] += 1
+                elif len(queue) < cfg['q_limit']:
+                    queue.append(call)
+                else:
+                    stats['lost'] += 1
+
+                self.data_grid.insert('', 0, values=(
+                    stats['served'] + stats['lost'], round(call['arrival'], 2),
+                    call['duration'], round(call['gap'], 2),
+                    round(sum(1 for n in nodes if n > 0) / cfg['chan'], 2)
+                ))
+
+            for i in range(cfg['chan']):
+                if nodes[i] > 0:
+                    nodes[i] -= 1
+
+                if nodes[i] <= 0:
+                    if queue:
+                        next_call = queue.pop(0)
+                        nodes[i] = next_call['duration']
+                        stats['served'] += 1
+                        stats['q_count'] += 1
+                        stats['q_wait'] += (tick - next_call['arrival'])
+                        self._update_node_ui(i, nodes[i], True)
+                    else:
+                        self._update_node_ui(i, 0, False)
+                else:
+                    self._update_node_ui(i, nodes[i], True)
+
+            self.metrics['steps'].append(tick)
+            self.metrics['Q'].append(len(queue))
+            self.metrics['Ro'].append(sum(1 for n in nodes if n > 0) / cfg['chan'])
+            self.metrics['W'].append(stats['q_wait'] / stats['q_count'] if stats['q_count'] > 0 else 0)
+
+            self._update_ui_elements(tick, cfg['sim_time'], stats, len(queue))
+            time.sleep(0.4)
+
+        self.active_sim = False
+        self.btn_action.config(text="RESTART")
+
+    def _update_node_ui(self, index, val, busy):
+        if index < len(self.node_elements):
+            color = COLOR_BUSY if busy else COLOR_IDLE
+            label = str(val) if busy else "IDLE"
+            self.canvas_nodes.itemconfig(self.node_elements[index][0], fill=color)
+            self.canvas_nodes.itemconfig(self.node_elements[index][1], text=label)
+
+    def _update_ui_elements(self, tick, total, s, q_len):
+        self.status_box.delete("1.0", tk.END)
+        msg = f"CZAS: {tick}/{total}s\n" + "-" * 15 + \
+              f"\nObsłużone: {s['served']}\nOdrzucone: {s['lost']}\nKolejka: {q_len}"
+        self.status_box.insert(tk.END, msg)
+
+        titles = ["Długość kolejki", "Śr. czas oczekiwania", "Utylizacja łączy (ρ)"]
+        keys = ['Q', 'W', 'Ro']
+
+        for i, ax in enumerate(self.axes):
+            ax.clear()
+            ax.plot(self.metrics['steps'], self.metrics[keys[i]], color=PLOT_COLORS[i])
+            ax.set_title(titles[i], fontsize=9)
+            if keys[i] == 'Ro': ax.set_ylim(0, 1.1)
+
+        self.figure.tight_layout()
+        self.plot_canvas.draw()
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TelephonyApp(root)
+    root.mainloop()
