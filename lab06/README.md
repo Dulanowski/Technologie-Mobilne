@@ -1,4 +1,4 @@
-Lab 05 - Propagacja fal i Efekt Dopplera 
+Lab 06 - Propagacja fal i Efekt Dopplera 
 
 Co zostało zrealizowane- w tych labach trzeba bylo odpowiedziec na dane pytania i zrobic pare obliczen, zwykle sprawdzanie wiedzy na temat fal i efektu Dopplera.
 
